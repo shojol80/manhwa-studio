@@ -34,9 +34,14 @@ echo "  Ollama ready on port 11434"
 echo "[2/3] Checking AI models..."
 export HF_TOKEN="${HF_TOKEN:-}"
 
-# Models live on the volume at /workspace/models
-# download_models.sh skips existing files
-bash /download_models.sh
+if [ -z "$HF_TOKEN" ]; then
+  echo "  ⚠️  HF_TOKEN not set — skipping gated model downloads."
+  echo "  Set HF_TOKEN env var in RunPod pod settings to enable model downloads."
+else
+  # Models live on the volume at /workspace/models
+  # download_models.sh skips existing files
+  bash /download_models.sh
+fi
 
 # ──── 3. Symlink models into ComfyUI ────
 echo "[3/3] Starting ComfyUI..."
