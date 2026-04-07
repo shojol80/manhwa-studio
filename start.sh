@@ -68,12 +68,41 @@ symlink "$VOL/text_encoders/umt5-xxl-enc-bf16.safetensors" \
 symlink "$VOL/text_encoders/open-clip-xlm-roberta-large-vit-huge-14_visual_fp16.safetensors" \
         "$COMFY/models/text_encoders/open-clip-xlm-roberta-large-vit-huge-14_visual_fp16.safetensors"
 
+# ──── 4. Nginx reverse proxy ────
+echo "[4/4] Starting nginx reverse proxy..."
+cat > /etc/nginx/sites-available/default << 'NGINX'
+server {
+    listen 8188;
+    client_max_body_size 500M;
+
+    # ComfyUI
+    location / {
+        proxy_pass http://127.0.0.1:8190;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_read_timeout 86400;
+    }
+
+    # Ollama API
+    location /ollama/ {
+        rewrite ^/ollama/(.*) /$1 break;
+        proxy_pass http://127.0.0.1:11434;
+        proxy_set_header Host $host;
+        proxy_read_timeout 300;
+    }
+}
+NGINX
+service nginx restart 2>/dev/null || nginx
+
 echo "================================================="
 echo " All services ready!"
-echo "  ComfyUI  → port 8188"
-echo "  Ollama   → port 11434"
+echo "  ComfyUI  → port 8188 (via nginx)"
+echo "  Ollama   → port 8188/ollama/ (via nginx)"
+echo "  Ollama   → port 11434 (direct)"
 echo "================================================="
 
-# Start ComfyUI (foreground — keeps container alive)
+# Start ComfyUI on 8190 (nginx proxies 8188 → 8190)
 cd /ComfyUI
-exec python main.py --listen 0.0.0.0 --port 8188 --disable-auto-launch
+exec python main.py --listen 0.0.0.0 --port 8190 --disable-auto-launch
