@@ -1,34 +1,33 @@
 #!/bin/bash
-set -e
+# Do NOT use set -e — we want services to start even if some steps fail
 
 echo "================================================="
 echo " Manhwa Studio — Starting services"
 echo "================================================="
 
 # ──── 1. Ollama LLM ────
-echo "[1/3] Starting Ollama..."
+echo "[1/4] Starting Ollama..."
 export OLLAMA_HOST=0.0.0.0:11434
 
 # Use workspace models if available, otherwise copy from baked image
-if [ ! -d /workspace/ollama/models ] || [ -z "$(ls -A /workspace/ollama/models 2>/dev/null)" ]; then
+mkdir -p /workspace/ollama/models 2>/dev/null || true
+if [ -d /opt/ollama/models ] && [ -z "$(ls -A /workspace/ollama/models 2>/dev/null)" ]; then
   echo "  Copying pre-baked Ollama models to /workspace..."
-  mkdir -p /workspace/ollama/models
   cp -rn /opt/ollama/models/* /workspace/ollama/models/ 2>/dev/null || true
 fi
 export OLLAMA_MODELS=/workspace/ollama/models
 
-# Copy ollama binary if not in PATH
-which ollama > /dev/null 2>&1 || cp /usr/local/bin/ollama /workspace/ollama/bin/ollama 2>/dev/null || true
-
 nohup ollama serve > /workspace/ollama/serve.log 2>&1 &
-sleep 3
+sleep 5
 
 # Verify model is available
-if ! ollama list 2>/dev/null | grep -q "qwen2.5:3b"; then
+if ollama list 2>/dev/null | grep -q "qwen2.5:3b"; then
+  echo "  ✅ qwen2.5:3b already available"
+else
   echo "  Pulling qwen2.5:3b..."
-  ollama pull qwen2.5:3b
+  ollama pull qwen2.5:3b || echo "  ⚠️  Failed to pull model (will retry later)"
 fi
-echo "  Ollama ready on port 11434"
+echo "  Ollama running on port 11434"
 
 # ──── 2. Download AI models if needed ────
 echo "[2/3] Checking AI models..."
@@ -44,7 +43,7 @@ else
 fi
 
 # ──── 3. Symlink models into ComfyUI ────
-echo "[3/3] Starting ComfyUI..."
+echo "[3/4] Symlinking models..."
 COMFY="/ComfyUI"
 VOL="/workspace/models"
 
@@ -74,7 +73,8 @@ symlink "$VOL/text_encoders/open-clip-xlm-roberta-large-vit-huge-14_visual_fp16.
         "$COMFY/models/text_encoders/open-clip-xlm-roberta-large-vit-huge-14_visual_fp16.safetensors"
 
 # ──── 4. Nginx reverse proxy ────
-echo "[4/4] Starting nginx reverse proxy..."
+echo "[4/4] Starting nginx..."
+mkdir -p /etc/nginx/sites-available 2>/dev/null || true
 cat > /etc/nginx/sites-available/default << 'NGINX'
 server {
     listen 8188;
@@ -99,7 +99,7 @@ server {
     }
 }
 NGINX
-service nginx restart 2>/dev/null || nginx
+service nginx restart 2>/dev/null || nginx 2>/dev/null || echo "  ⚠️  nginx failed to start (ComfyUI will run on 8190 directly)"
 
 echo "================================================="
 echo " All services ready!"
